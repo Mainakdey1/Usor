@@ -100,9 +100,10 @@ func register(db *pgxpool.Pool) http.HandlerFunc {
 }
 
 func main() {
-
-	if err := godotenv.Load(); err != nil {
-		log.Fatal("Error loading env")
+	if os.Getenv("APP_ENV") != "production" {
+		if err := godotenv.Load(); err != nil {
+			log.Fatal("Error loading env")
+		}
 	}
 	port := os.Getenv("PORT")
 
