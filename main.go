@@ -4,14 +4,16 @@ import (
 	"Usor/utilities"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 
 	"github.com/google/uuid"
-
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 )
 
 func hello(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +34,20 @@ func health(w http.ResponseWriter, r *http.Request) {
 		"status": "ok",
 	})
 }
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
 func register(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -66,8 +81,16 @@ func register(db *pgxpool.Pool) http.HandlerFunc {
 		)
 
 		if err != nil {
-			log.Println(err)
-			http.Error(w, "failed to write to db", http.StatusInternalServerError)
+			var pgErr *pgconn.PgError
+
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				http.Error(w, "Username already exists",
+					http.StatusConflict)
+			} else {
+				log.Printf("Database err: %v", err)
+				http.Error(w, "Internal Server Error",
+					http.StatusInternalServerError)
+			}
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]string{
@@ -77,6 +100,10 @@ func register(db *pgxpool.Pool) http.HandlerFunc {
 }
 
 func main() {
+
+	if err := godotenv.Load(); err != nil {
+		log.Fatal("Error loading env")
+	}
 	port := os.Getenv("PORT")
 
 	dbUrl := os.Getenv("DATABASE_URL")
@@ -88,6 +115,8 @@ func main() {
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("POST /register", register(db))
 
+	handler := corsMiddleware(mux)
+
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -98,7 +127,7 @@ func main() {
 		port = "8000"
 	}
 	println("Server running on :", port)
-	err = http.ListenAndServe(":"+port, mux)
+	err = http.ListenAndServe(":"+port, handler)
 
 	if err != nil {
 		panic(err)
