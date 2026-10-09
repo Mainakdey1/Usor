@@ -65,17 +65,16 @@ func register(db *pgxpool.Pool) http.HandlerFunc {
 		fmt.Println("User: ", user.Username)
 
 		passwordHash, err := utilities.HashPassword(user.Password)
-
 		if err != nil {
 			http.Error(w, "failed to hash password", http.StatusInternalServerError)
 			return
 		}
-
+		uuidToken := uuid.New()
 		_, err = db.Exec(
 			r.Context(),
 			`INSERT INTO users (id, username, password_hash)
 			VALUES ($1, $2, $3)`,
-			uuid.New(),
+			uuidToken,
 			user.Username,
 			passwordHash,
 		)
@@ -92,6 +91,22 @@ func register(db *pgxpool.Pool) http.HandlerFunc {
 					http.StatusInternalServerError)
 			}
 			return
+		}
+		token, err := utilities.GenerateToken()
+		if err != nil {
+			panic(err)
+		}
+		tokenHash := utilities.HashToken(token)
+		_, err = db.Exec(
+			r.Context(),
+			`INSERT INTO api_tokens (user_id, token_hash)
+			VALUES ($1, $2)`,
+			uuidToken,
+			tokenHash,
+		)
+		if err != nil {
+			log.Printf("Database err: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		}
 		json.NewEncoder(w).Encode(map[string]string{
 			"message": "user registered!",
