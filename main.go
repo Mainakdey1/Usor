@@ -25,6 +25,9 @@ type RegisterUser struct {
 	Username string `json:"user"`
 	Password string `json:"password"`
 }
+type RegisterDevice struct {
+	DeviceToken string `json:"deviceToken"`
+}
 
 func health(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -107,10 +110,58 @@ func register(db *pgxpool.Pool) http.HandlerFunc {
 		if err != nil {
 			log.Printf("Database err: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
 		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
 		json.NewEncoder(w).Encode(map[string]string{
 			"message": "user registered!",
 		})
+	}
+}
+
+func storeDeviceToken(db *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		var DeviceToken RegisterDevice
+		err := json.NewDecoder(r.Body).Decode(&DeviceToken)
+
+		if err != nil {
+			http.Error(w, "invalid input", http.StatusBadRequest)
+			return
+		}
+
+		fmt.Println("device: ", DeviceToken)
+		token, err := utilities.GenerateToken()
+		if err != nil {
+			panic(err)
+		}
+		deviceTokenHash := utilities.HashToken(token)
+		_, err = db.Exec(
+			r.Context(),
+			`INSERT INTO device_tokens (device_token, token_hash)
+			VALUES ($1, $2)`,
+			DeviceToken.DeviceToken,
+			deviceTokenHash,
+		)
+		if err != nil {
+			log.Printf("Database err: %v", err)
+			http.Error(
+				w,
+				"Device Registration failed",
+				http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Device registered!",
+		})
+
 	}
 }
 
@@ -130,6 +181,7 @@ func main() {
 	mux.HandleFunc("GET /", hello)
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("POST /register", register(db))
+	mux.HandleFunc("POST /devices/register", storeDeviceToken(db))
 
 	handler := corsMiddleware(mux)
 
