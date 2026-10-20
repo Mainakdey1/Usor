@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"log"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -39,7 +40,7 @@ func GenerateToken() (string, error) {
 	if _, err := rand.Read(secret); err != nil {
 		return "", err
 	}
-
+	log.Print("hsv_" + hex.EncodeToString(secret))
 	return "hsv_" + hex.EncodeToString(secret), nil
 }
 
